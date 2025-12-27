@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+  <remote name="github" fetch="https://github.com/" />
+
+  <project name="kawaldhanju33062-tech/android_device_samsung_m14x" 
+           path="device/samsung/m14x" 
+           remote="github" 
+           revision="main" />
+
+  <project name="kawaldhanju33062-tech/twrp_device_samsung_s5e8535-common" 
+           path="device/samsung/s5e8535-common" 
+           remote="github" 
+           revision="main" />
+</manifest>
