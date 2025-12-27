@@ -1,13 +1,10 @@
-
 name: Build PBRP m14x
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    # Changed to ubuntu-latest to avoid the "Waiting for runner" hang
     runs-on: ubuntu-latest
-    
     steps:
       - name: Free Disk Space
         run: |
@@ -17,7 +14,7 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc build-essential git-core libssl-dev python3 repo libncurses5 zip unzip curl git lz4 python-is-python3
+          sudo apt-get install -y bc build-essential git-core libssl-dev python3 repo libncurses-dev zip unzip curl git lz4 python-is-python3 libtinfo5
 
       - name: Sync PBRP Source
         run: |
@@ -25,38 +22,35 @@ jobs:
           git config --global user.email "builder@example.com"
           git config --global user.name "Builder"
           
-          # Initialize PBRP Manifest
+          # Initialize PBRP Minimal Manifest (Android 12.1)
           repo init -u https://github.com/PitchBlackRecoveryProject/manifest_pb -b android-12.1 --depth=1
           
-          # Create Local Manifest to pull your specific trees
+          # Inject Local Manifest
           mkdir -p .repo/local_manifests
           cat <<EOF > .repo/local_manifests/m14x.xml
           <?xml version="1.0" encoding="UTF-8"?>
           <manifest>
-            <project name="kawaldhanju33062-tech/twrp_device_samsung_m14x" path="device/samsung/m14x" remote="github" revision="main" />
+            <project name="kawaldhanju33062-tech/twrp_device_samsung_m14x" path="device/samsung/m14x" remote="github" revision="twrp-12.1" />
             <project name="kawaldhanju33062-tech/twrp_device_samsung_s5e8535-common" path="device/samsung/s5e8535-common" remote="github" revision="main" />
           </manifest>
           EOF
           
-          # Sync with optimized thread count
+          # Sync repositories
           repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
 
       - name: Build PBRP
         run: |
           cd pbrp
-          # Essential flags for Samsung builds
           export ALLOW_MISSING_DEPENDENCIES=true
           export LC_ALL=C
-          
           . build/envsetup.sh
           
-          # Ensure this matches your PRODUCT_NAME in pb_m14x.mk
+          # Match the PRODUCT_NAME in your pb_m14x.mk
           lunch pb_m14x-eng
           
-          # Use j8 for faster compilation
           mka pbrp -j$(nproc --all)
 
-      - name: Upload Recovery Artifacts
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: PBRP-m14x-Build
