@@ -13,6 +13,8 @@ jobs:
 
       - name: Install Build Dependencies
         run: |
+          # Add Ubuntu 22.04 repos for legacy library support
+          sudo add-apt-repository 'deb http://azure.archive.ubuntu.com/ubuntu/ jammy main universe'
           sudo apt-get update
           sudo apt-get install -y bc build-essential git-core libssl-dev python3 repo libncurses-dev zip unzip curl git lz4 python-is-python3 libtinfo5
 
@@ -22,7 +24,7 @@ jobs:
           git config --global user.email "builder@example.com"
           git config --global user.name "Builder"
           
-          # Initialize PBRP Minimal Manifest (Android 12.1)
+          # Initialize PBRP Minimal Manifest
           repo init -u https://github.com/PitchBlackRecoveryProject/manifest_pb -b android-12.1 --depth=1
           
           # Inject Local Manifest
