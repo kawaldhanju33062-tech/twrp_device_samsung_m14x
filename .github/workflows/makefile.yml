@@ -13,10 +13,10 @@ jobs:
 
       - name: Install Build Dependencies
         run: |
-          # Add Ubuntu 22.04 repos for legacy library support
+          # Add Ubuntu 22.04 (Jammy) for legacy libtinfo5 support
           sudo add-apt-repository 'deb http://azure.archive.ubuntu.com/ubuntu/ jammy main universe'
           sudo apt-get update
-          sudo apt-get install -y bc build-essential git-core libssl-dev python3 repo libncurses-dev zip unzip curl git lz4 python-is-python3 libtinfo5
+          sudo apt-get install -y bc build-essential git-core libssl-dev python3-minimal repo libncurses-dev zip unzip curl git lz4 python-is-python3 libtinfo5
 
       - name: Sync PBRP Source
         run: |
@@ -24,10 +24,15 @@ jobs:
           git config --global user.email "builder@example.com"
           git config --global user.name "Builder"
           
-          # Initialize PBRP Minimal Manifest
-          repo init -u https://github.com/PitchBlackRecoveryProject/manifest_pb -b android-12.1 --depth=1
+          # 1. Install a local, writable repo tool to fix the /usr/bin/repo error
+          curl https://storage.googleapis.com/git-repo-downloads/repo > repo
+          chmod a+x repo
+          export PATH=$(pwd):$PATH
           
-          # Inject Local Manifest
+          # 2. Initialize PBRP Manifest
+          ./repo init -u https://github.com/PitchBlackRecoveryProject/manifest_pb -b android-12.1 --depth=1
+          
+          # 3. Create Local Manifest
           mkdir -p .repo/local_manifests
           cat <<EOF > .repo/local_manifests/m14x.xml
           <?xml version="1.0" encoding="UTF-8"?>
@@ -37,8 +42,8 @@ jobs:
           </manifest>
           EOF
           
-          # Sync repositories
-          repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+          # 4. Sync with high thread count
+          ./repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
 
       - name: Build PBRP
         run: |
@@ -47,7 +52,7 @@ jobs:
           export LC_ALL=C
           . build/envsetup.sh
           
-          # Match the PRODUCT_NAME in your pb_m14x.mk
+          # Lunch using your device codename
           lunch pb_m14x-eng
           
           mka pbrp -j$(nproc --all)
