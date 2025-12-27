@@ -1,20 +1,23 @@
+
 name: Build PBRP m14x
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    # Changed to ubuntu-latest to avoid the "Waiting for runner" hang
+    runs-on: ubuntu-latest
+    
     steps:
-      - name: Cleanup Space
+      - name: Free Disk Space
         run: |
-          sudo rm -rf /usr/share/dotnet /etc/mysql /var/lib/mysql
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo apt-get clean
 
-      - name: Install Build Tools
+      - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc build-essential git-core libssl-dev python3 repo libncurses5 zip unzip curl git lz4
+          sudo apt-get install -y bc build-essential git-core libssl-dev python3 repo libncurses5 zip unzip curl git lz4 python-is-python3
 
       - name: Sync PBRP Source
         run: |
@@ -22,10 +25,10 @@ jobs:
           git config --global user.email "builder@example.com"
           git config --global user.name "Builder"
           
-          # Initialize PBRP Minimal Manifest (Android 12.1)
+          # Initialize PBRP Manifest
           repo init -u https://github.com/PitchBlackRecoveryProject/manifest_pb -b android-12.1 --depth=1
           
-          # Inject Local Manifest
+          # Create Local Manifest to pull your specific trees
           mkdir -p .repo/local_manifests
           cat <<EOF > .repo/local_manifests/m14x.xml
           <?xml version="1.0" encoding="UTF-8"?>
@@ -35,22 +38,25 @@ jobs:
           </manifest>
           EOF
           
-          # Sync all trees
+          # Sync with optimized thread count
           repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
 
       - name: Build PBRP
         run: |
           cd pbrp
+          # Essential flags for Samsung builds
           export ALLOW_MISSING_DEPENDENCIES=true
+          export LC_ALL=C
+          
           . build/envsetup.sh
           
-          # Use the product name defined in your pb_m14x.mk
+          # Ensure this matches your PRODUCT_NAME in pb_m14x.mk
           lunch pb_m14x-eng
           
-          # Compile the PBRP image
+          # Use j8 for faster compilation
           mka pbrp -j$(nproc --all)
 
-      - name: Upload Build Artifacts
+      - name: Upload Recovery Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: PBRP-m14x-Build
