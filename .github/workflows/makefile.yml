@@ -6,17 +6,23 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Free Disk Space
+      - name: Aggressive Space Cleanup
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/lib/jvm
+          sudo docker image prune --all --force
           sudo apt-get clean
 
       - name: Install Build Dependencies
         run: |
-          # Add Ubuntu 22.04 (Jammy) for legacy libtinfo5 support
-          sudo add-apt-repository 'deb http://azure.archive.ubuntu.com/ubuntu/ jammy main universe'
           sudo apt-get update
-          sudo apt-get install -y bc build-essential git-core libssl-dev python3-minimal repo libncurses-dev zip unzip curl git lz4 python-is-python3 libtinfo5
+          sudo apt-get install -y bc build-essential git-core libssl-dev python3-minimal repo libncurses-dev zip unzip curl git lz4 python-is-python3
+          
+          # Fix for legacy libtinfo5 and libncurses5 on Ubuntu 24.04 (ubuntu-latest)
+          curl -LO http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.4-2_amd64.deb
+          sudo dpkg -i libtinfo5_6.4-2_amd64.deb
+          curl -LO http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libncurses5_6.4-2_amd64.deb
+          sudo dpkg -i libncurses5_6.4-2_amd64.deb
+          rm *.deb
 
       - name: Sync PBRP Source
         run: |
@@ -24,13 +30,13 @@ jobs:
           git config --global user.email "builder@example.com"
           git config --global user.name "Builder"
           
-          # 1. Install a local, writable repo tool to fix the /usr/bin/repo error
+          # 1. Install local repo tool
           curl https://storage.googleapis.com/git-repo-downloads/repo > repo
           chmod a+x repo
           export PATH=$(pwd):$PATH
           
-          # 2. Initialize PBRP Manifest
-          ./repo init -u https://github.com/PitchBlackRecoveryProject/manifest_pb -b android-12.1 --depth=1
+          # 2. Initialize with Partial Clone to fix Rust checkout errors
+          ./repo init -u https://github.com/PitchBlackRecoveryProject/manifest_pb -b android-12.1 --depth=1 --partial-clone --clone-filter=blob:limit=10M
           
           # 3. Create Local Manifest
           mkdir -p .repo/local_manifests
@@ -42,7 +48,7 @@ jobs:
           </manifest>
           EOF
           
-          # 4. Sync with high thread count
+          # 4. Sync with high thread count and force-sync
           ./repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
 
       - name: Build PBRP
@@ -52,7 +58,7 @@ jobs:
           export LC_ALL=C
           . build/envsetup.sh
           
-          # Lunch using your device codename
+          # Ensure this matches your PRODUCT_NAME in pb_m14x.mk
           lunch pb_m14x-eng
           
           mka pbrp -j$(nproc --all)
