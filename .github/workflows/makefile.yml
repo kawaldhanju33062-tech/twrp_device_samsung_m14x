@@ -1,4 +1,4 @@
-name: PBRP Build - M14x (Stable)
+name: PBRP Build - M14x (Kati Fix)
 
 on:
   workflow_dispatch:
@@ -22,25 +22,22 @@ jobs:
           swap-size-mb: 10240
           remove-dotnet: 'true'
           remove-android: 'true'
-          remove-haskell: 'true'
 
-      - name: Install Build Dependencies
+      - name: Install Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib \
-          gcc-multilib git gnupg gperf imagemagick lib32readline-dev \
-          lib32z1-dev liblz4-tool libncurses-dev libsdl1.2-dev libssl-dev \
-          libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools tar zip \
-          zlib1g-dev python3
+          gcc-multilib git gnupg gperf lib32readline-dev lib32z1-dev liblz4-tool \
+          libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool \
+          squashfs-tools tar zip zlib1g-dev python3
           
-          # Fix for "python" command and legacy ncurses
           sudo ln -sf /usr/bin/python3 /usr/bin/python
           mkdir -p ~/legacy_libs && cd ~/legacy_libs
           wget http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libncurses5_6.2-0ubuntu2_amd64.deb
           wget http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.2-0ubuntu2_amd64.deb
           sudo dpkg -i *.deb || sudo apt -f install -y
 
-      - name: Setup Repo & Git
+      - name: Setup Repo
         run: |
           mkdir -p ~/bin
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
@@ -49,38 +46,41 @@ jobs:
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
 
-      - name: Sync PBRP Source
+      - name: Sync PBRP
         run: |
           mkdir work && cd work
           repo init -u ${{ env.MANIFEST }} -b ${{ env.MANIFEST_BRANCH }} --depth=1
           repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
 
-      - name: Clone Device Trees
+      - name: Clone Trees
         run: |
           cd work
           git clone https://github.com/AshutoshCodeSpace/twrp_device_samsung_m14x ${{ env.DEVICE_PATH }}
           git clone https://github.com/s5e8535/twrp_device_samsung_s5e8535-common ${{ env.COMMON_PATH }}
 
-      - name: Auto-Patch Trees for PBRP
+      - name: Fix and Patch Trees
         run: |
           cd work/${{ env.DEVICE_PATH }}
-          # Fix filenames for PBRP lunch
+          
+          # 1. Fix Makefile naming
           [ -f twrp_m14x.mk ] && mv twrp_m14x.mk pb_m14x.mk
           [ -f omni_m14x.mk ] && mv omni_m14x.mk pb_m14x.mk
           
-          # Update makefiles to match the new PBRP lunch target
+          # 2. Update Makefiles
           sed -i 's/twrp_m14x/pb_m14x/g' AndroidProducts.mk
           sed -i 's/omni_m14x/pb_m14x/g' AndroidProducts.mk
           sed -i 's/twrp_/pb_/g' pb_m14x.mk || sed -i 's/omni_/pb_/g' pb_m14x.mk
           
-          # Inject PitchBlack Branding and Samsung fixes
-          echo "PB_RECOVERY_DEVICE := m14x" >> BoardConfig.mk
+          # 3. Clean injection into BoardConfig (ensuring newlines to avoid 'commands commence' error)
+          echo -e "\n\n# PBRP Flags\nPB_RECOVERY_DEVICE := m14x" >> BoardConfig.mk
           echo "PB_MAINTAINER := GitHubAction" >> BoardConfig.mk
           echo "PB_DEVICE_MODEL := Samsung M14 5G" >> BoardConfig.mk
-          # Samsung devices often need this to bypass size checks during automated builds
-          echo "BOARD_HAS_NO_REAL_SDCARD := true" >> BoardConfig.mk
+          
+          # 4. Fix potential sysprop corruption in common tree
+          cd ../s5e8535-common
+          find . -name "*.mk" -exec sed -i '$a\\' {} \; # Ensures every mk file ends with a newline
 
-      - name: Build PBRP
+      - name: Build
         run: |
           cd work
           export ALLOW_MISSING_DEPENDENCIES=true
@@ -89,10 +89,10 @@ jobs:
           lunch ${{ env.LUNCH_NAME }}
           mka pbrp -j$(nproc --all)
 
-      - name: Upload Build
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: PBRP-M14x-Final
+          name: PBRP-M14x-Fixed
           path: |
             work/out/target/product/m14x/PitchBlack-*.zip
             work/out/target/product/m14x/recovery.img
