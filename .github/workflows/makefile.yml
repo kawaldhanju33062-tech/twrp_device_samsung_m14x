@@ -1,73 +1,73 @@
-name: Build PBRP m14x
+name: PBRP Build for M146B (m14x)
+
 on:
   workflow_dispatch:
 
+env:
+  MANIFEST: https://github.com/PitchBlackRecoveryProject/manifest_pb.git
+  MANIFEST_BRANCH: android-12.1
+  DEVICE_NAME: m14x
+  DEVICE_PATH: device/samsung/m14x
+  COMMON_PATH: device/samsung/s5e8535-common
+  LUNCH_NAME: pb_m14x-eng
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
-      - name: Aggressive Space Cleanup
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/lib/jvm
-          sudo docker image prune --all --force
-          sudo apt-get clean
+      - name: Maximize Build Space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 2048
+          temp-reserve-mb: 2048
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
 
       - name: Install Build Dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y bc build-essential git-core libssl-dev python3-minimal repo libncurses-dev zip unzip curl git lz4 python-is-python3
-          
-          # Fix for legacy libtinfo5 and libncurses5 on Ubuntu 24.04 (ubuntu-latest)
-          curl -LO http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.4-2_amd64.deb
-          sudo dpkg -i libtinfo5_6.4-2_amd64.deb
-          curl -LO http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libncurses5_6.4-2_amd64.deb
-          sudo dpkg -i libncurses5_6.4-2_amd64.deb
-          rm *.deb
+          sudo apt update
+          sudo apt install -y gperf gcc-multilib g++-multilib lib32ncurses5-dev liblz4-tool libncurses5-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools git repo
 
-      - name: Sync PBRP Source
+      - name: Sync Source
         run: |
-          mkdir pbrp && cd pbrp
-          git config --global user.email "builder@example.com"
-          git config --global user.name "Builder"
-          
-          # 1. Install local repo tool
-          curl https://storage.googleapis.com/git-repo-downloads/repo > repo
-          chmod a+x repo
-          export PATH=$(pwd):$PATH
-          
-          # 2. Initialize with Partial Clone to fix Rust checkout errors
-          ./repo init -u https://github.com/PitchBlackRecoveryProject/manifest_pb -b android-12.1 --depth=1 --partial-clone --clone-filter=blob:limit=10M
-          
-          # 3. Create Local Manifest
-          mkdir -p .repo/local_manifests
-          cat <<EOF > .repo/local_manifests/m14x.xml
-          <?xml version="1.0" encoding="UTF-8"?>
-          <manifest>
-            <project name="kawaldhanju33062-tech/twrp_device_samsung_m14x" path="device/samsung/m14x" remote="github" revision="twrp-12.1" />
-            <project name="kawaldhanju33062-tech/twrp_device_samsung_s5e8535-common" path="device/samsung/s5e8535-common" remote="github" revision="main" />
-          </manifest>
-          EOF
-          
-          # 4. Sync with high thread count and force-sync
-          ./repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+          mkdir ~/pbrp && cd ~/pbrp
+          repo init -u ${{ env.MANIFEST }} -b ${{ env.MANIFEST_BRANCH }} --depth=1
+          repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
 
-      - name: Build PBRP
+      - name: Clone Device Trees
         run: |
-          cd pbrp
+          cd ~/pbrp
+          git clone https://github.com/AshutoshCodeSpace/twrp_device_samsung_m14x ${{ env.DEVICE_PATH }}
+          git clone https://github.com/s5e8535/twrp_device_samsung_s5e8535-common ${{ env.COMMON_PATH }}
+
+      - name: Transform TWRP Tree to PBRP
+        run: |
+          cd ~/pbrp/${{ env.DEVICE_PATH }}
+          # Rename the main makefile
+          mv twrp_m14x.mk pb_m14x.mk || mv twrp_m14x.mk omni_m14x.mk
+          
+          # Replace 'twrp_' with 'pb_' in all makefiles
+          sed -i 's/twrp_/pb_/g' pb_m14x.mk AndroidProducts.mk
+          
+          # Add PBRP specific flags to BoardConfig.mk
+          echo "PB_RECOVERY_DEVICE := m14x" >> BoardConfig.mk
+          echo "PB_MAINTAINER := YourName" >> BoardConfig.mk
+
+      - name: Build Recovery
+        run: |
+          cd ~/pbrp
+          source build/envsetup.sh
           export ALLOW_MISSING_DEPENDENCIES=true
           export LC_ALL=C
-          . build/envsetup.sh
-          
-          # Ensure this matches your PRODUCT_NAME in pb_m14x.mk
-          lunch pb_m14x-eng
-          
-          mka pbrp -j$(nproc --all)
+          lunch ${{ env.LUNCH_NAME }}
+          mka precoveryimage -j$(nproc --all)
 
-      - name: Upload Artifacts
+      - name: Upload Build
         uses: actions/upload-artifact@v4
         with:
-          name: PBRP-m14x-Build
+          name: PBRP-M146B
           path: |
-             pbrp/out/target/product/m14x/PBRP*.zip
-             pbrp/out/target/product/m14x/recovery.img
+             ~/pbrp/out/target/product/m14x/PitchBlack*.zip
+             ~/pbrp/out/target/product/m14x/recovery.img
              
