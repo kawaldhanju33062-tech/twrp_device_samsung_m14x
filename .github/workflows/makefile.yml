@@ -1,4 +1,4 @@
-name: PBRP Build - M14x (Dependency Fix)
+name: PBRP Build - M14x (Final Fix)
 
 on:
   workflow_dispatch:
@@ -19,30 +19,24 @@ jobs:
         uses: easimon/maximize-build-space@master
         with:
           root-reserve-mb: 1024
-          swap-size-mb: 10240 # Increased swap for compilation stability
+          swap-size-mb: 10240
           remove-dotnet: 'true'
           remove-android: 'true'
           remove-haskell: 'true'
 
-      - name: Install Legacy Dependencies
+      - name: Install Build Dependencies
         run: |
           sudo apt update
-          # Install current available packages
           sudo apt install -y bc bison build-essential ccache curl flex g++-multilib \
           gcc-multilib git gnupg gperf imagemagick lib32readline-dev \
           lib32z1-dev liblz4-tool libncurses-dev libsdl1.2-dev libssl-dev \
-          libxml2 libxml2-utils lzop pngcrush rsync testers schedtool squashfs-tools tar zip \
-          zlib1g-dev python3
+          libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools tar zip \
+          zlib1g-dev python3-is-python3
           
-          # Manually install Python2 and Libncurses5 (The "Focal" fix)
-          wget http://archive.ubuntu.com/ubuntu/pool/universe/p/python-defaults/python2_2.7.17-2ubuntu4_amd64.deb
-          wget http://archive.ubuntu.com/ubuntu/pool/universe/p/python2.7/python2.7_2.7.18-1~20.04.4_amd64.deb
-          wget http://archive.ubuntu.com/ubuntu/pool/universe/p/python2.7/libpython2.7-minimal_2.7.18-1~20.04.4_amd64.deb
-          wget http://archive.ubuntu.com/ubuntu/pool/universe/p/python2.7/python2.7-minimal_2.7.18-1~20.04.4_amd64.deb
-          wget http://archive.ubuntu.com/ubuntu/pool/universe/p/python2.7/libpython2.7-stdlib_2.7.18-1~20.04.4_amd64.deb
+          # Manually grab legacy libs needed for Android toolchains
+          mkdir -p ~/legacy_libs && cd ~/legacy_libs
           wget http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libncurses5_6.2-0ubuntu2_amd64.deb
           wget http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.2-0ubuntu2_amd64.deb
-          
           sudo dpkg -i *.deb || sudo apt -f install -y
 
       - name: Setup Repo & Git
@@ -66,23 +60,22 @@ jobs:
           git clone https://github.com/AshutoshCodeSpace/twrp_device_samsung_m14x ${{ env.DEVICE_PATH }}
           git clone https://github.com/s5e8535/twrp_device_samsung_s5e8535-common ${{ env.COMMON_PATH }}
 
-      - name: Patch Tree for PitchBlack
+      - name: Auto-Patch Trees for PBRP
         run: |
           cd work/${{ env.DEVICE_PATH }}
-          # Logic to handle both twrp_ and omni_ prefixes
-          if [ -f twrp_m14x.mk ]; then
-            mv twrp_m14x.mk pb_m14x.mk
-          elif [ -f omni_m14x.mk ]; then
-            mv omni_m14x.mk pb_m14x.mk
-          fi
+          # Fix filenames for PBRP lunch
+          [ -f twrp_m14x.mk ] && mv twrp_m14x.mk pb_m14x.mk
+          [ -f omni_m14x.mk ] && mv omni_m14x.mk pb_m14x.mk
           
+          # Update makefiles
           sed -i 's/twrp_m14x/pb_m14x/g' AndroidProducts.mk
           sed -i 's/omni_m14x/pb_m14x/g' AndroidProducts.mk
           sed -i 's/twrp_/pb_/g' pb_m14x.mk || sed -i 's/omni_/pb_/g' pb_m14x.mk
           
-          # Samsung specific build flags
+          # Inject PitchBlack Branding
           echo "PB_RECOVERY_DEVICE := m14x" >> BoardConfig.mk
           echo "PB_MAINTAINER := GitHubAction" >> BoardConfig.mk
+          echo "PB_DEVICE_MODEL := Samsung M14 5G" >> BoardConfig.mk
 
       - name: Build PBRP
         run: |
@@ -96,7 +89,7 @@ jobs:
       - name: Upload Build
         uses: actions/upload-artifact@v4
         with:
-          name: PBRP-M14x-Final
+          name: PBRP-M14x-Image
           path: |
             work/out/target/product/m14x/PitchBlack-*.zip
             work/out/target/product/m14x/recovery.img
