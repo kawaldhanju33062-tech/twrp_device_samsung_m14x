@@ -1,4 +1,4 @@
-name: PBRP Build - M14x (Final Fix)
+name: PBRP Build - M14x (Stable)
 
 on:
   workflow_dispatch:
@@ -26,14 +26,15 @@ jobs:
 
       - name: Install Build Dependencies
         run: |
-          sudo apt update
-          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib \
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib \
           gcc-multilib git gnupg gperf imagemagick lib32readline-dev \
           lib32z1-dev liblz4-tool libncurses-dev libsdl1.2-dev libssl-dev \
           libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools tar zip \
-          zlib1g-dev python3-is-python3
+          zlib1g-dev python3
           
-          # Manually grab legacy libs needed for Android toolchains
+          # Fix for "python" command and legacy ncurses
+          sudo ln -sf /usr/bin/python3 /usr/bin/python
           mkdir -p ~/legacy_libs && cd ~/legacy_libs
           wget http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libncurses5_6.2-0ubuntu2_amd64.deb
           wget http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.2-0ubuntu2_amd64.deb
@@ -67,15 +68,17 @@ jobs:
           [ -f twrp_m14x.mk ] && mv twrp_m14x.mk pb_m14x.mk
           [ -f omni_m14x.mk ] && mv omni_m14x.mk pb_m14x.mk
           
-          # Update makefiles
+          # Update makefiles to match the new PBRP lunch target
           sed -i 's/twrp_m14x/pb_m14x/g' AndroidProducts.mk
           sed -i 's/omni_m14x/pb_m14x/g' AndroidProducts.mk
           sed -i 's/twrp_/pb_/g' pb_m14x.mk || sed -i 's/omni_/pb_/g' pb_m14x.mk
           
-          # Inject PitchBlack Branding
+          # Inject PitchBlack Branding and Samsung fixes
           echo "PB_RECOVERY_DEVICE := m14x" >> BoardConfig.mk
           echo "PB_MAINTAINER := GitHubAction" >> BoardConfig.mk
           echo "PB_DEVICE_MODEL := Samsung M14 5G" >> BoardConfig.mk
+          # Samsung devices often need this to bypass size checks during automated builds
+          echo "BOARD_HAS_NO_REAL_SDCARD := true" >> BoardConfig.mk
 
       - name: Build PBRP
         run: |
@@ -89,7 +92,7 @@ jobs:
       - name: Upload Build
         uses: actions/upload-artifact@v4
         with:
-          name: PBRP-M14x-Image
+          name: PBRP-M14x-Final
           path: |
             work/out/target/product/m14x/PitchBlack-*.zip
             work/out/target/product/m14x/recovery.img
