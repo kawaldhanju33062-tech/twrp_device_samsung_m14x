@@ -57,37 +57,63 @@ jobs:
           git clone https://github.com/AshutoshCodeSpace/twrp_device_samsung_m14x ${{ env.DEVICE_PATH }}
           git clone https://github.com/s5e8535/twrp_device_samsung_s5e8535-common ${{ env.COMMON_PATH }}
 
+      - name: Verify Samsung Prebuilts
+        run: |
+          echo "Checking for Samsung specific prebuilt files..."
+          KERNEL="work/${{ env.DEVICE_PATH }}/prebuilt/Image"
+          DTBO="work/${{ env.DEVICE_PATH }}/prebuilt/recovery_dtbo"
+          
+          if [ ! -f "$KERNEL" ]; then
+            echo "ERROR: Kernel not found at $KERNEL. Please ensure it is in the 'prebuilt' folder."
+            exit 1
+          fi
+          
+          if [ ! -f "$DTBO" ]; then
+            echo "ERROR: DTBO image not found at $DTBO"
+            exit 1
+          fi
+          echo "Prebuilt files verified."
+
       - name: Transform Trees to PBRP
         run: |
-          # --- Transform Device Tree ---
+          # --- Transform Device Tree (m14x) ---
           cd work/${{ env.DEVICE_PATH }}
           [ -f twrp.dependencies ] && mv twrp.dependencies pb.dependencies
           [ -f twrp_m14x.mk ] && mv twrp_m14x.mk pb_m14x.mk
           
+          # Replace twrp prefixes with pb
           sed -i 's/twrp_m14x/pb_m14x/g' AndroidProducts.mk
           sed -i 's/PRODUCT_NAME := twrp_m14x/PRODUCT_NAME := pb_m14x/g' pb_m14x.mk
           
-          # --- Transform Common Tree ---
+          # CRITICAL: Fix the link to the common tree's renamed makefile
+          sed -i 's/twrp_s5e8535.mk/pb_s5e8535.mk/g' pb_m14x.mk
+          sed -i 's/twrp_s5e8535.mk/pb_s5e8535.mk/g' device.mk || true
+          
+          # --- Transform Common Tree (s5e8535-common) ---
           cd ../s5e8535-common
-          # Rename common makefile if exists
           [ -f twrp_s5e8535.mk ] && mv twrp_s5e8535.mk pb_s5e8535.mk
           
           # Change TWRP inheritance to PBRP
           find . -type f -name "*.mk" -exec sed -i 's|vendor/twrp/config/common.mk|vendor/pb/config/common.mk|g' {} +
           
-          # Fix "commands commence" error by ensuring newlines at end of all .mk files
+          # Deep search for internal twrp_s5e8535.mk references
+          find . -type f -name "*.mk" -exec sed -i 's/twrp_s5e8535.mk/pb_s5e8535.mk/g' {} +
+          
+          # Prevent "commands commence" error by ensuring trailing newlines
           find . -type f -name "*.mk" -exec sed -i '$a\\' {} +
 
       - name: Inject PBRP Configuration
         run: |
           cd work/${{ env.DEVICE_PATH }}
-          # Append PBRP specific flags to BoardConfig.mk safely
-          echo -e "\n# PBRP Configuration\nPB_RECOVERY_DEVICE := m14x" >> BoardConfig.mk
-          echo "PB_MAINTAINER := GitHubAction" >> BoardConfig.mk
-          echo "PB_DEVICE_MODEL := SM-M146B" >> BoardConfig.mk
-          # Samsung fix for storage
-          echo "BOARD_HAS_NO_REAL_SDCARD := true" >> BoardConfig.mk
-          # Ensure BoardConfig also ends with a newline
+          # Clean injection into BoardConfig.mk
+          {
+            echo ""
+            echo "# PitchBlack Recovery Project"
+            echo "PB_RECOVERY_DEVICE := m14x"
+            echo "PB_MAINTAINER := GitHubAction"
+            echo "PB_DEVICE_MODEL := SM-M146B"
+            echo "BOARD_HAS_NO_REAL_SDCARD := true"
+          } >> BoardConfig.mk
           sed -i '$a\\' BoardConfig.mk
 
       - name: Build PBRP
