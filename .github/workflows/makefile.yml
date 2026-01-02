@@ -1,4 +1,4 @@
-name: PBRP Build - M14x (Ubuntu-Latest)
+name: PBRP Build - M14x (Fixed Dependencies)
 
 on:
   workflow_dispatch:
@@ -25,19 +25,24 @@ jobs:
           remove-haskell: 'true'
           remove-codeql: 'true'
 
-      - name: Configure Git
+      - name: Setup Legacy Repositories (For Python2 & Libncurses5)
         run: |
-          git config --global user.name "GitHub Action"
-          git config --global user.email "action@github.com"
+          sudo add-apt-repository "deb http://archive.ubuntu.com/ubuntu/ focal universe"
+          sudo add-apt-repository "deb http://archive.ubuntu.com/ubuntu/ focal main"
+          sudo apt update
 
       - name: Install Dependencies
         run: |
-          sudo apt-get update
           sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib \
-          gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev \
-          lib32z1-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev \
+          gcc-multilib git gnupg gperf imagemagick lib32ncurses-dev lib32readline-dev \
+          lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev \
           libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools tar zip \
           zlib1g-dev python2 python3 libncurses5
+
+      - name: Setup Git
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
 
       - name: Install Repo
         run: |
@@ -61,22 +66,22 @@ jobs:
       - name: Patch Tree for PitchBlack
         run: |
           cd work/${{ env.DEVICE_PATH }}
-          # Convert TWRP makefiles to PBRP/Omni format
-          [ -f twrp_m14x.mk ] && mv twrp_m14x.mk pb_m14x.mk
-          sed -i 's/twrp_m14x/pb_m14x/g' AndroidProducts.mk
-          sed -i 's/twrp_/pb_/g' pb_m14x.mk
+          # Rename the lunch makefile if it exists
+          if [ -f twrp_m14x.mk ]; then mv twrp_m14x.mk pb_m14x.mk; fi
           
-          # Add PBRP identity flags
-          {
-            echo "PB_RECOVERY_DEVICE := m14x"
-            echo "PB_MAINTAINER := GitHubAction"
-            echo "PB_DEVICE_MODEL := M146B"
-          } >> BoardConfig.mk
+          # Replace strings to point to the new PBRP lunch target
+          sed -i 's/twrp_m14x/pb_m14x/g' AndroidProducts.mk
+          sed -i 's/twrp_/pb_/g' pb_m14x.mk || sed -i 's/twrp_/pb_/g' omni_m14x.mk
+          
+          # Force PBRP Identity
+          echo "PB_RECOVERY_DEVICE := m14x" >> BoardConfig.mk
+          echo "PB_MAINTAINER := GitHubAction" >> BoardConfig.mk
 
       - name: Build PBRP
         run: |
           cd work
           export ALLOW_MISSING_DEPENDENCIES=true
+          export LC_ALL=C
           source build/envsetup.sh
           lunch ${{ env.LUNCH_NAME }}
           mka pbrp -j$(nproc --all)
@@ -84,7 +89,7 @@ jobs:
       - name: Upload Recovery Image
         uses: actions/upload-artifact@v4
         with:
-          name: PBRP-M146B-Build
+          name: PBRP-M14x-Build
           path: |
             work/out/target/product/m14x/PitchBlack-*.zip
             work/out/target/product/m14x/recovery.img
