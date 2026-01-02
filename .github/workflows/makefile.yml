@@ -1,4 +1,4 @@
-name: PBRP Build for M146B (m14x)
+name: PBRP Build - M14x (Ubuntu-Latest)
 
 on:
   workflow_dispatch:
@@ -13,61 +13,79 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     steps:
       - name: Maximize Build Space
         uses: easimon/maximize-build-space@master
         with:
-          root-reserve-mb: 2048
-          temp-reserve-mb: 2048
+          root-reserve-mb: 1024
+          swap-size-mb: 6144
           remove-dotnet: 'true'
           remove-android: 'true'
           remove-haskell: 'true'
+          remove-codeql: 'true'
 
-      - name: Install Build Dependencies
+      - name: Configure Git
         run: |
-          sudo apt update
-          sudo apt install -y gperf gcc-multilib g++-multilib lib32ncurses5-dev liblz4-tool libncurses5-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools git repo
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
 
-      - name: Sync Source
+      - name: Install Dependencies
         run: |
-          mkdir ~/pbrp && cd ~/pbrp
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib \
+          gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev \
+          lib32z1-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev \
+          libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools tar zip \
+          zlib1g-dev python2 python3 libncurses5
+
+      - name: Install Repo
+        run: |
+          mkdir -p ~/bin
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+          chmod a+x ~/bin/repo
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      - name: Sync PBRP Source
+        run: |
+          mkdir work && cd work
           repo init -u ${{ env.MANIFEST }} -b ${{ env.MANIFEST_BRANCH }} --depth=1
           repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
 
       - name: Clone Device Trees
         run: |
-          cd ~/pbrp
+          cd work
           git clone https://github.com/AshutoshCodeSpace/twrp_device_samsung_m14x ${{ env.DEVICE_PATH }}
           git clone https://github.com/s5e8535/twrp_device_samsung_s5e8535-common ${{ env.COMMON_PATH }}
 
-      - name: Transform TWRP Tree to PBRP
+      - name: Patch Tree for PitchBlack
         run: |
-          cd ~/pbrp/${{ env.DEVICE_PATH }}
-          # Rename the main makefile
-          mv twrp_m14x.mk pb_m14x.mk || mv twrp_m14x.mk omni_m14x.mk
+          cd work/${{ env.DEVICE_PATH }}
+          # Convert TWRP makefiles to PBRP/Omni format
+          [ -f twrp_m14x.mk ] && mv twrp_m14x.mk pb_m14x.mk
+          sed -i 's/twrp_m14x/pb_m14x/g' AndroidProducts.mk
+          sed -i 's/twrp_/pb_/g' pb_m14x.mk
           
-          # Replace 'twrp_' with 'pb_' in all makefiles
-          sed -i 's/twrp_/pb_/g' pb_m14x.mk AndroidProducts.mk
-          
-          # Add PBRP specific flags to BoardConfig.mk
-          echo "PB_RECOVERY_DEVICE := m14x" >> BoardConfig.mk
-          echo "PB_MAINTAINER := YourName" >> BoardConfig.mk
+          # Add PBRP identity flags
+          {
+            echo "PB_RECOVERY_DEVICE := m14x"
+            echo "PB_MAINTAINER := GitHubAction"
+            echo "PB_DEVICE_MODEL := M146B"
+          } >> BoardConfig.mk
 
-      - name: Build Recovery
+      - name: Build PBRP
         run: |
-          cd ~/pbrp
-          source build/envsetup.sh
+          cd work
           export ALLOW_MISSING_DEPENDENCIES=true
-          export LC_ALL=C
+          source build/envsetup.sh
           lunch ${{ env.LUNCH_NAME }}
-          mka precoveryimage -j$(nproc --all)
+          mka pbrp -j$(nproc --all)
 
-      - name: Upload Build
+      - name: Upload Recovery Image
         uses: actions/upload-artifact@v4
         with:
-          name: PBRP-M146B
+          name: PBRP-M146B-Build
           path: |
-             ~/pbrp/out/target/product/m14x/PitchBlack*.zip
-             ~/pbrp/out/target/product/m14x/recovery.img
-             
+            work/out/target/product/m14x/PitchBlack-*.zip
+            work/out/target/product/m14x/recovery.img
+            
