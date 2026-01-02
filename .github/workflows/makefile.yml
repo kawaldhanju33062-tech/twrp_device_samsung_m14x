@@ -1,4 +1,4 @@
-name: PBRP Build - M14x (Kati Fix)
+name: PBRP Build - M146B (m14x)
 
 on:
   workflow_dispatch:
@@ -6,7 +6,6 @@ on:
 env:
   MANIFEST: https://github.com/PitchBlackRecoveryProject/manifest_pb.git
   MANIFEST_BRANCH: android-12.1
-  DEVICE_NAME: m14x
   DEVICE_PATH: device/samsung/m14x
   COMMON_PATH: device/samsung/s5e8535-common
   LUNCH_NAME: pb_m14x-eng
@@ -46,41 +45,52 @@ jobs:
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
 
-      - name: Sync PBRP
+      - name: Sync PBRP Source
         run: |
           mkdir work && cd work
           repo init -u ${{ env.MANIFEST }} -b ${{ env.MANIFEST_BRANCH }} --depth=1
           repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
 
-      - name: Clone Trees
+      - name: Clone Device Trees
         run: |
           cd work
           git clone https://github.com/AshutoshCodeSpace/twrp_device_samsung_m14x ${{ env.DEVICE_PATH }}
           git clone https://github.com/s5e8535/twrp_device_samsung_s5e8535-common ${{ env.COMMON_PATH }}
 
-      - name: Fix and Patch Trees
+      - name: Transform Trees to PBRP
+        run: |
+          # --- Transform Device Tree ---
+          cd work/${{ env.DEVICE_PATH }}
+          [ -f twrp.dependencies ] && mv twrp.dependencies pb.dependencies
+          [ -f twrp_m14x.mk ] && mv twrp_m14x.mk pb_m14x.mk
+          
+          sed -i 's/twrp_m14x/pb_m14x/g' AndroidProducts.mk
+          sed -i 's/PRODUCT_NAME := twrp_m14x/PRODUCT_NAME := pb_m14x/g' pb_m14x.mk
+          
+          # --- Transform Common Tree ---
+          cd ../s5e8535-common
+          # Rename common makefile if exists
+          [ -f twrp_s5e8535.mk ] && mv twrp_s5e8535.mk pb_s5e8535.mk
+          
+          # Change TWRP inheritance to PBRP
+          find . -type f -name "*.mk" -exec sed -i 's|vendor/twrp/config/common.mk|vendor/pb/config/common.mk|g' {} +
+          
+          # Fix "commands commence" error by ensuring newlines at end of all .mk files
+          find . -type f -name "*.mk" -exec sed -i '$a\\' {} +
+
+      - name: Inject PBRP Configuration
         run: |
           cd work/${{ env.DEVICE_PATH }}
-          
-          # 1. Fix Makefile naming
-          [ -f twrp_m14x.mk ] && mv twrp_m14x.mk pb_m14x.mk
-          [ -f omni_m14x.mk ] && mv omni_m14x.mk pb_m14x.mk
-          
-          # 2. Update Makefiles
-          sed -i 's/twrp_m14x/pb_m14x/g' AndroidProducts.mk
-          sed -i 's/omni_m14x/pb_m14x/g' AndroidProducts.mk
-          sed -i 's/twrp_/pb_/g' pb_m14x.mk || sed -i 's/omni_/pb_/g' pb_m14x.mk
-          
-          # 3. Clean injection into BoardConfig (ensuring newlines to avoid 'commands commence' error)
-          echo -e "\n\n# PBRP Flags\nPB_RECOVERY_DEVICE := m14x" >> BoardConfig.mk
+          # Append PBRP specific flags to BoardConfig.mk safely
+          echo -e "\n# PBRP Configuration\nPB_RECOVERY_DEVICE := m14x" >> BoardConfig.mk
           echo "PB_MAINTAINER := GitHubAction" >> BoardConfig.mk
-          echo "PB_DEVICE_MODEL := Samsung M14 5G" >> BoardConfig.mk
-          
-          # 4. Fix potential sysprop corruption in common tree
-          cd ../s5e8535-common
-          find . -name "*.mk" -exec sed -i '$a\\' {} \; # Ensures every mk file ends with a newline
+          echo "PB_DEVICE_MODEL := SM-M146B" >> BoardConfig.mk
+          # Samsung fix for storage
+          echo "BOARD_HAS_NO_REAL_SDCARD := true" >> BoardConfig.mk
+          # Ensure BoardConfig also ends with a newline
+          sed -i '$a\\' BoardConfig.mk
 
-      - name: Build
+      - name: Build PBRP
         run: |
           cd work
           export ALLOW_MISSING_DEPENDENCIES=true
@@ -89,10 +99,10 @@ jobs:
           lunch ${{ env.LUNCH_NAME }}
           mka pbrp -j$(nproc --all)
 
-      - name: Upload
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: PBRP-M14x-Fixed
+          name: PBRP-M146B-m14x
           path: |
             work/out/target/product/m14x/PitchBlack-*.zip
             work/out/target/product/m14x/recovery.img
