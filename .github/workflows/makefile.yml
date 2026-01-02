@@ -1,4 +1,4 @@
-name: PBRP Build - M14x (Fixed Dependencies)
+name: PBRP Build - M14x (Dependency Fix)
 
 on:
   workflow_dispatch:
@@ -19,37 +19,40 @@ jobs:
         uses: easimon/maximize-build-space@master
         with:
           root-reserve-mb: 1024
-          swap-size-mb: 6144
+          swap-size-mb: 10240 # Increased swap for compilation stability
           remove-dotnet: 'true'
           remove-android: 'true'
           remove-haskell: 'true'
-          remove-codeql: 'true'
 
-      - name: Setup Legacy Repositories (For Python2 & Libncurses5)
+      - name: Install Legacy Dependencies
         run: |
-          sudo add-apt-repository "deb http://archive.ubuntu.com/ubuntu/ focal universe"
-          sudo add-apt-repository "deb http://archive.ubuntu.com/ubuntu/ focal main"
           sudo apt update
+          # Install current available packages
+          sudo apt install -y bc bison build-essential ccache curl flex g++-multilib \
+          gcc-multilib git gnupg gperf imagemagick lib32readline-dev \
+          lib32z1-dev liblz4-tool libncurses-dev libsdl1.2-dev libssl-dev \
+          libxml2 libxml2-utils lzop pngcrush rsync testers schedtool squashfs-tools tar zip \
+          zlib1g-dev python3
+          
+          # Manually install Python2 and Libncurses5 (The "Focal" fix)
+          wget http://archive.ubuntu.com/ubuntu/pool/universe/p/python-defaults/python2_2.7.17-2ubuntu4_amd64.deb
+          wget http://archive.ubuntu.com/ubuntu/pool/universe/p/python2.7/python2.7_2.7.18-1~20.04.4_amd64.deb
+          wget http://archive.ubuntu.com/ubuntu/pool/universe/p/python2.7/libpython2.7-minimal_2.7.18-1~20.04.4_amd64.deb
+          wget http://archive.ubuntu.com/ubuntu/pool/universe/p/python2.7/python2.7-minimal_2.7.18-1~20.04.4_amd64.deb
+          wget http://archive.ubuntu.com/ubuntu/pool/universe/p/python2.7/libpython2.7-stdlib_2.7.18-1~20.04.4_amd64.deb
+          wget http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libncurses5_6.2-0ubuntu2_amd64.deb
+          wget http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.2-0ubuntu2_amd64.deb
+          
+          sudo dpkg -i *.deb || sudo apt -f install -y
 
-      - name: Install Dependencies
-        run: |
-          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib \
-          gcc-multilib git gnupg gperf imagemagick lib32ncurses-dev lib32readline-dev \
-          lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev \
-          libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools tar zip \
-          zlib1g-dev python2 python3 libncurses5
-
-      - name: Setup Git
-        run: |
-          git config --global user.name "GitHub Action"
-          git config --global user.email "action@github.com"
-
-      - name: Install Repo
+      - name: Setup Repo & Git
         run: |
           mkdir -p ~/bin
           curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
           chmod a+x ~/bin/repo
           echo "$HOME/bin" >> $GITHUB_PATH
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
 
       - name: Sync PBRP Source
         run: |
@@ -66,14 +69,18 @@ jobs:
       - name: Patch Tree for PitchBlack
         run: |
           cd work/${{ env.DEVICE_PATH }}
-          # Rename the lunch makefile if it exists
-          if [ -f twrp_m14x.mk ]; then mv twrp_m14x.mk pb_m14x.mk; fi
+          # Logic to handle both twrp_ and omni_ prefixes
+          if [ -f twrp_m14x.mk ]; then
+            mv twrp_m14x.mk pb_m14x.mk
+          elif [ -f omni_m14x.mk ]; then
+            mv omni_m14x.mk pb_m14x.mk
+          fi
           
-          # Replace strings to point to the new PBRP lunch target
           sed -i 's/twrp_m14x/pb_m14x/g' AndroidProducts.mk
-          sed -i 's/twrp_/pb_/g' pb_m14x.mk || sed -i 's/twrp_/pb_/g' omni_m14x.mk
+          sed -i 's/omni_m14x/pb_m14x/g' AndroidProducts.mk
+          sed -i 's/twrp_/pb_/g' pb_m14x.mk || sed -i 's/omni_/pb_/g' pb_m14x.mk
           
-          # Force PBRP Identity
+          # Samsung specific build flags
           echo "PB_RECOVERY_DEVICE := m14x" >> BoardConfig.mk
           echo "PB_MAINTAINER := GitHubAction" >> BoardConfig.mk
 
@@ -86,10 +93,10 @@ jobs:
           lunch ${{ env.LUNCH_NAME }}
           mka pbrp -j$(nproc --all)
 
-      - name: Upload Recovery Image
+      - name: Upload Build
         uses: actions/upload-artifact@v4
         with:
-          name: PBRP-M14x-Build
+          name: PBRP-M14x-Final
           path: |
             work/out/target/product/m14x/PitchBlack-*.zip
             work/out/target/product/m14x/recovery.img
